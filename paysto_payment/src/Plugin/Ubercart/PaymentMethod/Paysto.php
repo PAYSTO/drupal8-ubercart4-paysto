@@ -101,9 +101,6 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
             '#default_value' => $this->configuration['use_ip_only_from_server_list'],
         ];
         
-        
-        
-        
         $form['back_url'] = [
             '#type' => 'url',
             '#title' => $this->t('Instant notification settings URL'),
