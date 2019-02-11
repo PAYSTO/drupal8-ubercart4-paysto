@@ -97,7 +97,7 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
         
         $form['use_ip_only_from_server_list'] = [
             '#type' => 'checkbox',
-            '#title' => $this->t('Enable use_ip_only_from_server_list.'),
+            '#title' => $this->t('Enable recieve callback only from established server list'),
             '#default_value' => $this->configuration['use_ip_only_from_server_list'],
         ];
         
@@ -108,6 +108,9 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
             '#default_value' => Url::fromRoute('uc_paysto.notification', [], ['absolute' => true])->toString(),
             '#attributes' => ['readonly' => 'readony'],
         ];
+        
+        
+        // uc_product_types() as type
         
         return $form;
     }
