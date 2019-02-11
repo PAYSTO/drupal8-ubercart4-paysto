@@ -1,0 +1,15 @@
+uc_paysto.complete:
+  path: '/cart/paysto/complete'
+  defaults:
+    _controller: '\Drupal\uc_paysto\Controller\PaystoController::complete'
+    _title: 'Order complete'
+  requirements:
+    _permission: 'access content'
+
+uc_paysto.notification:
+  path: '/cart/paysto/notification'
+  defaults:
+    _controller: '\Drupal\uc_paysto\Controller\PaystoController::notification'
+    _title: 'Notification callback'
+  requirements:
+    _permission: 'access content'
