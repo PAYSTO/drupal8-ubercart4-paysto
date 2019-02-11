@@ -1,17 +1,17 @@
-# Schema for the configuration files of the uc_paysto module.
-payment_method.settings.paysto:
+# Schema for the configuration files of the uc_fondy module.
+payment_method.settings.fondy:
   type: mapping
-  label: 'paysto form configuration settings'
+  label: 'fondy form configuration settings'
   mapping:
-    x_login:
+    merchant_id:
       type: string
       label: 'Merchant ID'
-    secret:
+    secret_key:
       type: string
       label: 'Secret Key'
     back_url:
       type: string
-      label: 'Back ref url. (http://{your_site}/paysto/back_url)'
+      label: 'Back ref url. (http://{your_site}/fondy/back_url)'
     currency:
       type: string
       label: 'Type of currency. Leave empty to shop currency'

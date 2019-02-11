@@ -1,0 +1,37 @@
+<?php
+
+/**
+ * @file
+ * Integrates payanyway.ru's redirected payment service.
+ */
+
+use Drupal\Core\Routing\RouteMatchInterface;
+
+/**
+ * Implements hook_help().
+ */
+function uc_payanyway_help($route_name, RouteMatchInterface $route_match) {
+  // Provide information and instructions on the payment method add and edit forms.
+  if ($route_name == 'entity.uc_payment_method.add_form' &&
+      $route_match->getRawParameter('plugin_id') == 'payanyway') {
+    return '<p>' . t('To accept PayPal payments in payanyway, please ensure that demo mode is disabled and your store currency is one of USD, AUD, CAD, EUR or GBP.') . '</p>';
+  }
+  elseif ($route_name == 'entity.uc_payment_method.edit_form' &&
+          $route_match->getParameter('uc_payment_method')->getPlugin()->getPluginId() == 'payanyway') {
+    return '<p>' . t('To accept PayPal payments in payanyway, please ensure that demo mode is disabled and your store currency is one of USD, AUD, CAD, EUR or GBP.') . '</p>';
+  }
+}
+
+/**
+ * Implements hook_ucga_display().
+ */
+function uc_payanyway_ucga_display() {
+  // Tell UC Google Analytics to display the e-commerce JS on the custom
+  // order completion page for this module.
+
+  //@todo, inject $route_name so we can do
+  //if ($route_name == 'uc_payanyway.ruplete')
+  if (arg(0) == 'cart' && arg(1) == 'payanyway' && arg(2) == 'complete') {
+    return TRUE;
+  }
+}

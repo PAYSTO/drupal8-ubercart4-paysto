@@ -1,0 +1,8 @@
+payanyway.styles:
+  css:
+    theme:
+      css/uc_payanyway.css: {}
+
+payanyway.direct:
+  js:
+    https://www.payanyway.ru/static/checkout/javascript/direct.min.js: { type: external, minified: true }

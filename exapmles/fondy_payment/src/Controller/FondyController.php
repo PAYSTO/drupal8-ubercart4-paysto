@@ -1,8 +1,8 @@
 <?php
 
-namespace Drupal\uc_paysto\Controller;
+namespace Drupal\uc_fondy\Controller;
 
-use Drupal\uc_paysto\Plugin\Ubercart\PaymentMethod\Paysto;
+use Drupal\uc_fondy\Plugin\Ubercart\PaymentMethod\Fondy;
 use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\Unicode;
 use Drupal\Core\Controller\ControllerBase;
@@ -14,9 +14,9 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 /**
- * Controller routines for uc_Paysto.
+ * Controller routines for uc_Fondy.
  */
-class PaystoController extends ControllerBase {
+class FondyController extends ControllerBase {
 
 	/**
 	 * The cart manager.
@@ -30,7 +30,7 @@ class PaystoController extends ControllerBase {
 	protected $session;
 
 	/**
-	 * Constructs a PaystoController.
+	 * Constructs a FondyController.
 	 *
 	 * @param \Drupal\uc_cart\CartManagerInterface $cart_manager
 	 *   The cart manager.
@@ -51,7 +51,7 @@ class PaystoController extends ControllerBase {
 	}
 
 	/**
-	 * Final redirec status Paysto
+	 * Final redirec status Fondy
 	 *
 	 * @param int $cart_id
 	 * @param Request $request
@@ -60,12 +60,12 @@ class PaystoController extends ControllerBase {
 	 */
 	public function complete( $cart_id = 0, Request $request ) {
 
-		\Drupal::logger( 'uc_paysto' )->notice( 'Receiving new order notification for order @order_id.', [ '@order_id' => Html::escape( $request->request->get( 'order_id' ) ) ] );
+		\Drupal::logger( 'uc_fondy' )->notice( 'Receiving new order notification for order @order_id.', [ '@order_id' => Html::escape( $request->request->get( 'order_id' ) ) ] );
 		if ( ! $request->request->get( 'order_id' ) ) {
 			throw new AccessDeniedHttpException();
 		}
 
-		list( $orderId, ) = explode( Paysto::$order_separator, $request->request->get( 'order_id' ) );
+		list( $orderId, ) = explode( Fondy::$order_separator, $request->request->get( 'order_id' ) );
 		$order = Order::load( $orderId );
 
 		if ( ! $order || $order->getStateId() != 'in_checkout' ) {
@@ -74,7 +74,7 @@ class PaystoController extends ControllerBase {
 
 		$plugin = \Drupal::service( 'plugin.manager.uc_payment.method' )->createFromOrder( $order );
 
-		if ( $plugin->getPluginId() != 'paysto' ) {
+		if ( $plugin->getPluginId() != 'fondy' ) {
 			throw new AccessDeniedHttpException();
 		}
 
@@ -86,7 +86,7 @@ class PaystoController extends ControllerBase {
 		$valid = $this->isPaymentValid( $configuration, $data );
 
 		if ( $valid == false ) {
-			uc_order_comment_save( $order->id(), 0, $this->t( 'Attempted unverified Paysto completion for this order.' ), 'admin' );
+			uc_order_comment_save( $order->id(), 0, $this->t( 'Attempted unverified Fondy completion for this order.' ), 'admin' );
 			throw new AccessDeniedHttpException();
 		}
 
@@ -100,15 +100,15 @@ class PaystoController extends ControllerBase {
 		}
 
 		if ( $request->request->get( 'order_status' ) == 'approved' && is_numeric( $request->request->get( 'amount' ) ) ) {
-			$comment = $this->t( 'Paid by @type, paysto.eu order #@order.', [
+			$comment = $this->t( 'Paid by @type, fondy.eu order #@order.', [
 				'@type'  => $this->t( 'Credit card' ),
 				'@order' => Html::escape( $request->request->get( 'payment_id' ) )
 			] );
-			uc_payment_enter( $order->id(), 'paysto', $request->request->get( 'amount' ) / 100, $order->getOwnerId(), null, $comment );
+			uc_payment_enter( $order->id(), 'fondy', $request->request->get( 'amount' ) / 100, $order->getOwnerId(), null, $comment );
 			$order->setStatusId('payment_received')->save();
 		} else {
-			drupal_set_message( $this->t( 'Your order will be processed as soon as your payment clears at paysto.eu.' ) );
-			uc_order_comment_save( $order->id(), 0, $this->t( '@type payment is pending approval at paysto.eu.', [ '@type' => $this->t( 'Credit card' ) ] ), 'admin' );
+			drupal_set_message( $this->t( 'Your order will be processed as soon as your payment clears at fondy.eu.' ) );
+			uc_order_comment_save( $order->id(), 0, $this->t( '@type payment is pending approval at fondy.eu.', [ '@type' => $this->t( 'Credit card' ) ] ), 'admin' );
 		}
 		// Add a comment to let sales team know this came in through the site.
 		uc_order_comment_save( $order->id(), 0, $this->t( 'Order created through website.' ), 'admin' );
@@ -117,33 +117,33 @@ class PaystoController extends ControllerBase {
 	}
 
 	/**
-	 * React on messages from Paysto.
+	 * React on messages from Fondy.
 	 *
 	 * @param \Symfony\Component\HttpFoundation\Request $request
 	 *   The request of the page.
 	 */
 	public function notification( Request $request ) {
 		$values = $request->request;
-		\Drupal::logger( 'uc_paysto' )->notice( 'Received Paysto notification with following data: @data', [ '@data' => print_r( $values->all(), true ) ] );
+		\Drupal::logger( 'uc_fondy' )->notice( 'Received Fondy notification with following data: @data', [ '@data' => print_r( $values->all(), true ) ] );
 
 		if ( $values->has( 'order_status' ) && $values->has( 'order_id' ) && $values->has( 'payment_id' ) ) {
-			list( $orderId, ) = explode( Paysto::$order_separator, $values->get( 'order_id' ) );
+			list( $orderId, ) = explode( Fondy::$order_separator, $values->get( 'order_id' ) );
 			$order         = Order::load( $orderId );
 			$plugin        = \Drupal::service( 'plugin.manager.uc_payment.method' )->createFromOrder( $order );
 			$configuration = $plugin->getConfiguration();
 			$valid         = $this->isPaymentValid( $configuration, $values->all() );
 
 			if ( $valid == false ) {
-				\Drupal::logger( 'uc_paysto' )->notice( 'Paysto notification #@num had a wrong Signs.', [ '@num' => $values->get( 'message_id' ) ] );
+				\Drupal::logger( 'uc_fondy' )->notice( 'Fondy notification #@num had a wrong Signs.', [ '@num' => $values->get( 'message_id' ) ] );
 				die( 'Sign Incorrect' );
 			}
 
 			switch ( $values->get( 'order_status' ) ) {
 				case 'approved':
 					if($order->getStateId() != 'payment_received') {
-						$comment = $this->t( 'Paysto transaction ID: @payment_id', [ '@payment_id' => $values->get( 'order_id' ) ] );
-						uc_payment_enter( $orderId, 'paysto', $values->get( 'amount' ) / 100, $order->getOwnerId(), null, $comment );
-						uc_order_comment_save( $orderId, 0, $this->t( 'Paysto reported a payment of @amount @currency.', [
+						$comment = $this->t( 'Fondy transaction ID: @payment_id', [ '@payment_id' => $values->get( 'order_id' ) ] );
+						uc_payment_enter( $orderId, 'fondy', $values->get( 'amount' ) / 100, $order->getOwnerId(), null, $comment );
+						uc_order_comment_save( $orderId, 0, $this->t( 'Fondy reported a payment of @amount @currency.', [
 							'@amount'   => uc_currency_format( $values->get( 'amount' ) / 100, false ),
 							'@currency' => $values->get( 'currency' )
 						] ) );
@@ -153,13 +153,13 @@ class PaystoController extends ControllerBase {
 					break;
 				case 'declined':
 					$order->setStatusId( 'canceled' )->save();
-					uc_order_comment_save( $orderId, 0, $this->t( 'Order have not passed Paysto declined.' ) );
+					uc_order_comment_save( $orderId, 0, $this->t( 'Order have not passed Fondy declined.' ) );
 					die( 'canceled' );
 					break;
 
 				case 'expired':
 					$order->setStatusId( 'canceled' )->save();
-					uc_order_comment_save( $orderId, 0, $this->t( 'Order have not passed Paysto expired.' ) );
+					uc_order_comment_save( $orderId, 0, $this->t( 'Order have not passed Fondy expired.' ) );
 					die( 'canceled' );
 					break;
 			}
@@ -169,7 +169,7 @@ class PaystoController extends ControllerBase {
 
 	private function isPaymentValid( $settings, $response ) {
 
-		if ( $settings['x_login'] != $response['x_login'] ) {
+		if ( $settings['merchant_id'] != $response['merchant_id'] ) {
 			return false;
 		}
 
@@ -180,7 +180,7 @@ class PaystoController extends ControllerBase {
 		if ( isset( $response['signature'] ) ) {
 			unset( $response['signature'] );
 		}
-		if ( Paysto::getSignature( $response, $settings['secret'] ) != $responseSignature ) {
+		if ( Fondy::getSignature( $response, $settings['secret_key'] ) != $responseSignature ) {
 			return false;
 		}
 

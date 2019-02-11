@@ -1,0 +1,13 @@
+name: PayAnyWay
+type: module
+description: 'Processes payments using PayAnyWay.ru.'
+package: Ubercart - payment
+# core: 8.x
+dependencies:
+  - uc_payment
+
+# Information added by Drupal.org packaging script on 2016-08-02
+version: '8.x-4.0-alpha4+77-dev'
+core: '8.x'
+project: 'ubercart'
+datestamp: 1470119646

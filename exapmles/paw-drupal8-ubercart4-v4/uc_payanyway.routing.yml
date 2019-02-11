@@ -1,0 +1,15 @@
+uc_payanyway.ruplete:
+  path: '/cart/payanyway/complete'
+  defaults:
+    _controller: '\Drupal\uc_payanyway\Controller\PayanywayController::complete'
+    _title: 'Order complete'
+  requirements:
+    _permission: 'access content'
+
+uc_payanyway.notification:
+  path: '/cart/payanyway/notification'
+  defaults:
+    _controller: '\Drupal\uc_payanyway\Controller\PayanywayController::notification'
+    _title: 'Notification callback'
+  requirements:
+    _permission: 'access content'
