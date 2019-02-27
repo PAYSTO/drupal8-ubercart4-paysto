@@ -35,8 +35,8 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
     public static $order_separator = '#';
     
     /**
+     * Display label for payment method
      * @param string $label
-     *
      * @return mixed
      */
     public function getDisplayLabel($label)
@@ -55,26 +55,37 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
         
         return $build;
     }
-    
+
     /**
+     * Return default module settengs
      * @return array
      */
     public function defaultConfiguration()
     {
-        return [
-            'currency' => 'EUR',
-            'use_ip_only_from_server_list' => false,
-            'language' => 'en',
-            'back_url' => '',
-            'secret' => 'test',
-            'x_login' => ''
-        ];
+
+        $returned = [
+                'x_login' => '',
+                'secret' => '',
+                'vat_shipping' => '',
+                'use_ip_only_from_server_list' => true,
+                'server_list' => '95.213.209.218
+95.213.209.219
+95.213.209.220
+95.213.209.221
+95.213.209.222'
+            ] + parent::defaultConfiguration();
+
+        foreach (uc_product_types() as $type) {
+            $returned['vat_product_' . $type] = '';
+        }
+
+        return $returned;
     }
     
     /**
+     * Setup (settings) form for module
      * @param array $form
      * @param FormStateInterface $form_state
-     *
      * @return array
      */
     public function buildConfigurationForm(array $form, FormStateInterface $form_state)
@@ -84,7 +95,7 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
             '#title' => $this->t('Your Merchant ID'),
             '#description' => $this->t('Your mid from portal.'),
             '#default_value' => $this->configuration['x_login'],
-            '#size' => 16,
+            '#size' => 40,
         ];
         
         $form['secret'] = [
@@ -92,44 +103,78 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
             '#title' => $this->t('Secret word for order verification'),
             '#description' => $this->t('The secret word entered in your paysto settings page.'),
             '#default_value' => $this->configuration['secret'],
-            '#size' => 256,
+            '#size' => 40,
         ];
-        
+
+
+        foreach (uc_product_types() as $type) {
+            $form['vat_product_' . $type] = [
+                '#type' => 'select',
+                '#title' => $this->t("Vat rate for product type " . $type),
+                '#description' => $this->t("Set vat rate for product " . $type),
+                '#options' => [
+                    'Y' => $this->t('With VAT'),
+                    'N' => $this->t('WIthout VAT'),
+                ],
+                '#default_value' => $this->configuration['vat_product_' . $type],
+                '#required' => true,
+            ];
+        }
+
+        $form['vat_shipping'] = [
+            '#type' => 'select',
+            '#title' => $this->t("Vat rate for shipping"),
+            '#description' => $this->t("Set vat rate for shipping"),
+            '#options' => [
+                'Y' => $this->t('With VAT'),
+                'N' => $this->t('WIthout VAT'),
+            ],
+            '#default_value' => $this->configuration['vat_shipping'],
+            '#required' => true,
+        ];
+
         $form['use_ip_only_from_server_list'] = [
             '#type' => 'checkbox',
-            '#title' => $this->t('Enable recieve callback only from established server list'),
+            '#title' => $this->t("Use server IP"),
+            '#description' => $this->t("Use server IP for callback only from list"),
+            '#value' => true,
+            '#false_values' => [false],
             '#default_value' => $this->configuration['use_ip_only_from_server_list'],
+            '#required' => true,
         ];
-        
-        $form['back_url'] = [
-            '#type' => 'url',
-            '#title' => $this->t('Instant notification settings URL'),
-            '#description' => $this->t('Back/notify url. Example (http://{your_site}/paysto/back_url)'),
-            '#default_value' => Url::fromRoute('uc_paysto.notification', [], ['absolute' => true])->toString(),
-            '#attributes' => ['readonly' => 'readony'],
+
+        $form['server_list'] = [
+            '#type' => 'textarea',
+            '#title' => $this->t("Acceptable server list"),
+            '#description' => $this->t("Input new server IP in each new string"),
+            '#default_value' => $this->configuration['server_list'],
         ];
-        
-        
-        // uc_product_types() as type
-        
+
+        //todo разобраться какая функция в Ubercart отвечает за вывод статусов заказов
+//        var_dump(uc_order_status_list()); die;
+
         return $form;
+
     }
     
     /**
+     * Setting save submit form
      * {@inheritdoc}
      */
     public function submitConfigurationForm(array &$form, FormStateInterface $form_state)
     {
-        $this->configuration['use_ip_only_from_server_list'] = $form_state->getValue('use_ip_only_from_server_list');
-        $this->configuration['checkout_type'] = $form_state->getValue('checkout_type');
-        $this->configuration['currency'] = $form_state->getValue('currency');
-        $this->configuration['language'] = $form_state->getValue('language');
-        $this->configuration['back_url'] = $form_state->getValue('back_url');
-        $this->configuration['secret'] = $form_state->getValue('secret');
         $this->configuration['x_login'] = $form_state->getValue('x_login');
+        $this->configuration['secret'] = $form_state->getValue('secret');
+        foreach (uc_product_types() as $type) {
+            $this->configuration['vat_product_' . $type] = $form_state->getValue('vat_product_' . $type);
+        }
+        $this->configuration['vat_shipping'] = $form_state->getValue('vat_shipping');
+        $this->configuration['use_ip_only_from_server_list'] = $form_state->getValue('use_ip_only_from_server_list');
+        $this->configuration['server_list'] = $form_state->getValue('server_list');
     }
     
     /**
+     * Cart process form
      * {@inheritdoc}
      */
     public function cartProcess(OrderInterface $order, array $form, FormStateInterface $form_state)
@@ -143,14 +188,16 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
     }
     
     /**
+     * Print title for payment method
      * {@inheritdoc}
      */
     public function cartReviewTitle()
     {
-        return $this->t('Credit card Paysto');
+        return $this->t('Paysto payment');
     }
     
     /**
+     *
      * {@inheritdoc}
      */
     public function buildRedirectForm(array $form, FormStateInterface $form_state, OrderInterface $order = null)
