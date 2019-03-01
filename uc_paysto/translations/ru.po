@@ -21,7 +21,6 @@ msgstr ""
 msgid "paysto"
 msgstr "paysto"
 
-
 #: uc_paysto.module:97;169
 msgid "Currency"
 msgstr "Валюта"

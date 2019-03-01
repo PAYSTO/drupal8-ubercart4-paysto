@@ -5,6 +5,8 @@ namespace Drupal\uc_paysto\Plugin\Ubercart\PaymentMethod;
 use Drupal\Component\Utility\Unicode;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
+use Drupal\node\Entity\Node;
+use Drupal\uc_order\Entity\OrderStatus;
 use Drupal\uc_order\OrderInterface;
 use Drupal\uc_payment\OffsitePaymentMethodPluginInterface;
 use Drupal\uc_payment\PaymentMethodPluginBase;
@@ -20,7 +22,7 @@ use Drupal\uc_payment\PaymentMethodPluginBase;
  */
 class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPluginInterface
 {
-    
+
     /**
      * @var string payment url
      */
@@ -33,7 +35,7 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
      * @var string
      */
     public static $order_separator = '#';
-    
+
     /**
      * Display label for payment method
      * @param string $label
@@ -52,7 +54,7 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
             '#alt' => $this->t('paysto'),
             '#attributes' => ['class' => ['uc-paysto-logo']]
         ];
-        
+
         return $build;
     }
 
@@ -66,22 +68,24 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
         $returned = [
                 'x_login' => '',
                 'secret' => '',
-                'vat_shipping' => '',
+                'description' => 'Оплата заказа №',
+                'vat_shipping' => 'N',
                 'use_ip_only_from_server_list' => true,
                 'server_list' => '95.213.209.218
 95.213.209.219
 95.213.209.220
 95.213.209.221
-95.213.209.222'
+95.213.209.222',
+                'order_status_after' => 'processing'
             ] + parent::defaultConfiguration();
 
         foreach (uc_product_types() as $type) {
-            $returned['vat_product_' . $type] = '';
+            $returned['vat_product_' . $type] = 'N';
         }
 
         return $returned;
     }
-    
+
     /**
      * Setup (settings) form for module
      * @param array $form
@@ -97,13 +101,21 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
             '#default_value' => $this->configuration['x_login'],
             '#size' => 40,
         ];
-        
+
         $form['secret'] = [
             '#type' => 'textfield',
             '#title' => $this->t('Secret word for order verification'),
             '#description' => $this->t('The secret word entered in your paysto settings page.'),
             '#default_value' => $this->configuration['secret'],
             '#size' => 40,
+        ];
+
+        $form['description'] = [
+            '#type' => 'textfield',
+            '#title' => $this->t("Order description"),
+            '#description' => $this->t("Order description in Paysto interface"),
+            '#default_value' => $this->configuration['description'],
+            '#required' => true,
         ];
 
 
@@ -150,13 +162,19 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
             '#default_value' => $this->configuration['server_list'],
         ];
 
-        //todo разобраться какая функция в Ubercart отвечает за вывод статусов заказов
-//        var_dump(uc_order_status_list()); die;
+        $form['order_status_after'] = [
+            '#type' => 'select',
+            '#title' => $this->t("Order status after successfull payment"),
+            '#description' => $this->t("Set order status after successfull payment"),
+            '#options' => OrderStatus::getOptionsList(),
+            '#default_value' => $this->configuration['order_status_after'],
+            '#required' => true,
+        ];
 
         return $form;
 
     }
-    
+
     /**
      * Setting save submit form
      * {@inheritdoc}
@@ -171,61 +189,109 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
         $this->configuration['vat_shipping'] = $form_state->getValue('vat_shipping');
         $this->configuration['use_ip_only_from_server_list'] = $form_state->getValue('use_ip_only_from_server_list');
         $this->configuration['server_list'] = $form_state->getValue('server_list');
+        $this->configuration['order_status_after'] = $form_state->getValue('order_status_after');
     }
-    
-    /**
-     * Cart process form
-     * {@inheritdoc}
-     */
-    public function cartProcess(OrderInterface $order, array $form, FormStateInterface $form_state)
-    {
-        $session = \Drupal::service('session');
-        if (null != $form_state->getValue(['panes', 'payment', 'details', 'pay_method'])) {
-            $session->set('pay_method', $form_state->getValue(['panes', 'payment', 'details', 'pay_method']));
-        }
-        
-        return true;
-    }
-    
-    /**
-     * Print title for payment method
-     * {@inheritdoc}
-     */
-    public function cartReviewTitle()
-    {
-        return $this->t('Paysto payment');
-    }
-    
+
     /**
      *
      * {@inheritdoc}
      */
     public function buildRedirectForm(array $form, FormStateInterface $form_state, OrderInterface $order = null)
     {
-        
-        $paystoSettings = $this->configuration;
-        $amount = round(uc_currency_format($order->getTotal(), false, false, '.') * 100);
-        
-        $dataSettings = [
-            'order_id' => $order->id() . self::$order_separator . time(),
-            'x_login' => $paystoSettings['x_login'],
-            'order_desc' => $this->t('Order Pay #') . $order->id(),
-            'amount' => $amount,
-            'use_ip_only_from_server_list' => $paystoSettings['use_ip_only_from_server_list'] ? 'Y' : 'N',
-            'currency' => $paystoSettings['currency'] != '' ? $paystoSettings['currency'] : $order->getCurrency(),
-            'server_callback_url' => $paystoSettings['back_url'] == '' ? Url::fromRoute('uc_paysto.notification', [],
-                ['absolute' => true])->toString() : $paystoSettings['back_url'],
-            'response_url' => Url::fromRoute('uc_paysto.complete', [], ['absolute' => true])->toString(),
-            'lang' => $paystoSettings['language'],
-            'sender_email' => Unicode::substr($order->getEmail(), 0, 64)
+        // Get config
+        $configs = $this->configuration;
+
+        // Posotion count in order
+        $pos = 1;
+        // line item list
+        $x_line_item = '';
+
+        // Get amount
+        $x_amount = uc_currency_format($order->getTotal(), false, false, '.');
+
+        // Get now for sign
+        $now = time();
+
+        // Set data array
+        $data = [
+            'x_description' => $configs['description'] . $order->id(),
+            'x_login' => $configs['x_login'],
+            'x_amount' => $x_amount,
+            'x_currency_code' => $order->getCurrency(),
+            'x_fp_sequence' => $order->id(),
+            'x_fp_timestamp' => $now,
+            'x_fp_hash' => self::get_x_fp_hash($configs['x_login'], $order->id(), $now, $x_amount,
+                $order->getCurrency(), $configs['secret']),
+            'x_invoice_num' => $order->id(),
+            'x_relay_response' => "TRUE",
+            'x_relay_url' => Url::fromRoute('uc_paysto.notification', [], ['absolute' => true])->toString(),
         ];
-        
-        $dataSettings['signature'] = self::getSignature($dataSettings, $paystoSettings['secret']);
-        
-        return $this->generateForm($dataSettings, $this->url);
+
+        // Get customer (order) email
+        $customerEmail = $order->getEmail();
+        // if isset email
+        if ($customerEmail) {
+            $data['x_email'] = $customerEmail;
+        }
+
+
+        foreach ($order->products as $product) {
+            $lineArr = array();
+            $lineArr[] = '№' . $pos . " ";
+
+
+            $nid = $product->nid->first()->getValue()['target_id'];
+            $node = Node::load($nid);
+            $type = $node->getType();
+
+            $lineArr[] = substr($product->model->value, 0, 30);
+            $lineArr[] = substr($product->title->value, 0, 254);
+            $lineArr[] = $product->qty->value;
+            $lineArr[] = uc_currency_format($product->price->value, FALSE, FALSE, '.');
+            $lineArr[] = $configs['vat_product_' . $type];
+            $x_line_item .= implode('<|>', $lineArr) . "0<|>\n";
+            $pos++;
+        }
+
+        // add delivery
+        foreach ($order->getLineItems() as $item) {
+            if ($item['type'] == 'shipping') {
+                $lineArr = array();
+                $lineArr[] = '№' . $pos . " ";
+                $lineArr[] = 'shipping';
+                $lineArr[] = substr($item['title'], 0, 254);
+                $lineArr[] = '1';
+                $lineArr[] = uc_currency_format($item['amount'], FALSE, FALSE, '.');
+                $lineArr[] = $configs['vat_shipping'];
+                $x_line_item .= implode('<|>', $lineArr) . "0<|>\n";
+            }
+        }
+
+        $data['x_line_item'] = $x_line_item;
+
+        return $this->generateForm($data, $this->url);
     }
-    
+
     /**
+     * Get sign for send order
+     * @param $x_login
+     * @param $x_fp_sequence
+     * @param $x_fp_timestamp
+     * @param $x_amount
+     * @param $x_currency_code
+     * @param $secret
+     * @return string
+     */
+    public static function get_x_fp_hash($x_login, $x_fp_sequence, $x_fp_timestamp,
+        $x_amount, $x_currency_code, $secret)
+    {
+        $arr = [$x_login, $x_fp_sequence, $x_fp_timestamp, $x_amount, $x_currency_code];
+        $str = implode('^', $arr);
+        return hash_hmac('md5', $str, $secret);
+    }
+
+    /**
+     * Generate payment form
      * @param $data
      * @param string $url
      *
@@ -255,33 +321,6 @@ class Paysto extends PaymentMethodPluginBase implements OffsitePaymentMethodPlug
             '#type' => 'submit',
             '#value' => $this->t('Submit order'),
         ];
-        
         return $form;
-    }
-    
-    /**
-     * @param $data
-     * @param $password
-     * @param bool $encoded
-     *
-     * @return string
-     */
-    public static function getSignature($data, $password, $encoded = true)
-    {
-        $data = array_filter($data, function ($var) {
-            return $var !== '' && $var !== null;
-        });
-        ksort($data);
-        
-        $str = $password;
-        foreach ($data as $k => $v) {
-            $str .= self::$signature_separator . $v;
-        }
-        
-        if ($encoded) {
-            return sha1($str);
-        } else {
-            return $str;
-        }
     }
 }

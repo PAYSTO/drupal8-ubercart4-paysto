@@ -12,179 +12,154 @@ use Drupal\uc_payment\Plugin\PaymentMethodManager;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 
 /**
  * Controller routines for uc_Paysto.
  */
 class PaystoController extends ControllerBase {
 
-	/**
-	 * The cart manager.
-	 *
-	 * @var \Drupal\uc_cart\CartManager
-	 */
-	protected $cartManager;
-	/**
-	 * @var
-	 */
-	protected $session;
+  /** @var \Drupal\uc_cart\CartManagerInterface The cart manager */
+  protected $cartManager;
 
-	/**
-	 * Constructs a PaystoController.
-	 *
-	 * @param \Drupal\uc_cart\CartManagerInterface $cart_manager
-	 *   The cart manager.
-	 */
-	public function __construct( CartManagerInterface $cart_manager ) {
-		$this->cartManager = $cart_manager;
-	}
+  /** @var Store Session */
+  protected $session;
 
-	/**
-	 * @param ContainerInterface $container
-	 *
-	 * @return static
-	 */
-	public static function create( ContainerInterface $container ) {
-		return new static(
-			$container->get( 'uc_cart.manager' )
-		);
-	}
+  /** @var array Variable for store configuration */
+  protected $configuration = array();
 
-	/**
-	 * Final redirec status Paysto
-	 *
-	 * @param int $cart_id
-	 * @param Request $request
-	 *
-	 * @return array
-	 */
-	public function complete( $cart_id = 0, Request $request ) {
-
-		\Drupal::logger( 'uc_paysto' )->notice( 'Receiving new order notification for order @order_id.', [ '@order_id' => Html::escape( $request->request->get( 'order_id' ) ) ] );
-		if ( ! $request->request->get( 'order_id' ) ) {
-			throw new AccessDeniedHttpException();
-		}
-
-		list( $orderId, ) = explode( Paysto::$order_separator, $request->request->get( 'order_id' ) );
-		$order = Order::load( $orderId );
-
-		if ( ! $order || $order->getStateId() != 'in_checkout' ) {
-			return [ '#plain_text' => $this->t( 'An error has occurred during payment. Please contact us to ensure your order has submitted.' ) ];
-		}
-
-		$plugin = \Drupal::service( 'plugin.manager.uc_payment.method' )->createFromOrder( $order );
-
-		if ( $plugin->getPluginId() != 'paysto' ) {
-			throw new AccessDeniedHttpException();
-		}
-
-		$configuration = $plugin->getConfiguration();
-		$data          = array();
-		foreach ( $request->request as $key => $value ) {
-			$data[ $key ] = $value;
-		}
-		$valid = $this->isPaymentValid( $configuration, $data );
-
-		if ( $valid == false ) {
-			uc_order_comment_save( $order->id(), 0, $this->t( 'Attempted unverified Paysto completion for this order.' ), 'admin' );
-			throw new AccessDeniedHttpException();
-		}
+  /**
+   * Constructs a PaystoController.
+   *
+   * @param \Drupal\uc_cart\CartManagerInterface $cart_manager
+   *   The cart manager.
+   */
+  public function __construct(CartManagerInterface $cart_manager) {
+    $this->cartManager = $cart_manager;
+  }
 
 
-		$address = $order->getAddress( 'billing' );
-		$order->setAddress( 'billing', $address );
-		$order->save();
+  /**
+   * Create method
+   *
+   * @param \Symfony\Component\DependencyInjection\ContainerInterface $container
+   * @return \Drupal\uc_paysto\Controller\PaystoController
+   */
+  public static function create(ContainerInterface $container) {
+    return new static(
+      $container->get('uc_cart.manager')
+    );
+  }
 
-		if ( Unicode::strtolower( $request->request->get( 'sender_email' ) ) !== Unicode::strtolower( $order->getEmail() ) ) {
-			uc_order_comment_save( $order->id(), 0, $this->t( 'Customer used a different e-mail address during payment: @email', [ '@email' => Html::escape( $request->request->get( 'email' ) ) ] ), 'admin' );
-		}
 
-		if ( $request->request->get( 'order_status' ) == 'approved' && is_numeric( $request->request->get( 'amount' ) ) ) {
-			$comment = $this->t( 'Paid by @type, paysto.eu order #@order.', [
-				'@type'  => $this->t( 'Credit card' ),
-				'@order' => Html::escape( $request->request->get( 'payment_id' ) )
-			] );
-			uc_payment_enter( $order->id(), 'paysto', $request->request->get( 'amount' ) / 100, $order->getOwnerId(), null, $comment );
-			$order->setStatusId('payment_received')->save();
-		} else {
-			drupal_set_message( $this->t( 'Your order will be processed as soon as your payment clears at paysto.eu.' ) );
-			uc_order_comment_save( $order->id(), 0, $this->t( '@type payment is pending approval at paysto.eu.', [ '@type' => $this->t( 'Credit card' ) ] ), 'admin' );
-		}
-		// Add a comment to let sales team know this came in through the site.
-		uc_order_comment_save( $order->id(), 0, $this->t( 'Order created through website.' ), 'admin' );
+  /**
+   * Notification callback function
+   *
+   * @param \Symfony\Component\HttpFoundation\Request $request
+   */
+  public function notification(Request $request) {
 
-		return $this->cartManager->completeSale( $order );
-	}
+    // Try to get values from request
+    $orderId = $request->request->get('x_invoice_num');
+    // Get first if
+    if (!isset($orderId)) {
+      \Drupal::messenger()->addMessage($this->t('Site can not get info from you transaction. Please return to store and perform the order'),
+        'success');
+      $response = new RedirectResponse('/', 302);
+      $response->send();
+      return;
+    }
+    $order = Order::load($orderId);
 
-	/**
-	 * React on messages from Paysto.
-	 *
-	 * @param \Symfony\Component\HttpFoundation\Request $request
-	 *   The request of the page.
-	 */
-	public function notification( Request $request ) {
-		$values = $request->request;
-		\Drupal::logger( 'uc_paysto' )->notice( 'Received Paysto notification with following data: @data', [ '@data' => print_r( $values->all(), true ) ] );
+    // Load configuration
+    $plugin = \Drupal::service('plugin.manager.uc_payment.method')
+      ->createFromOrder($order);
+    $this->configuration = $plugin->getConfiguration();
+    $x_login = $this->configuration['x_login'];
+    $secret = $this->configuration['secret'];
 
-		if ( $values->has( 'order_status' ) && $values->has( 'order_id' ) && $values->has( 'payment_id' ) ) {
-			list( $orderId, ) = explode( Paysto::$order_separator, $values->get( 'order_id' ) );
-			$order         = Order::load( $orderId );
-			$plugin        = \Drupal::service( 'plugin.manager.uc_payment.method' )->createFromOrder( $order );
-			$configuration = $plugin->getConfiguration();
-			$valid         = $this->isPaymentValid( $configuration, $values->all() );
+    $orderTotal = uc_currency_format($order->getTotal(), false, false, '.');
 
-			if ( $valid == false ) {
-				\Drupal::logger( 'uc_paysto' )->notice( 'Paysto notification #@num had a wrong Signs.', [ '@num' => $values->get( 'message_id' ) ] );
-				die( 'Sign Incorrect' );
-			}
+    $x_response_code = $request->request->get('x_response_code');
+    $x_trans_id = $request->request->get('x_trans_id');
+    $x_MD5_Hash = $request->request->get('x_MD5_Hash');
+    $calculated_x_MD5_Hash = self::get_x_MD5_Hash($x_login, $x_trans_id, $orderTotal, $secret);
 
-			switch ( $values->get( 'order_status' ) ) {
-				case 'approved':
-					if($order->getStateId() != 'payment_received') {
-						$comment = $this->t( 'Paysto transaction ID: @payment_id', [ '@payment_id' => $values->get( 'order_id' ) ] );
-						uc_payment_enter( $orderId, 'paysto', $values->get( 'amount' ) / 100, $order->getOwnerId(), null, $comment );
-						uc_order_comment_save( $orderId, 0, $this->t( 'Paysto reported a payment of @amount @currency.', [
-							'@amount'   => uc_currency_format( $values->get( 'amount' ) / 100, false ),
-							'@currency' => $values->get( 'currency' )
-						] ) );
-					}
-					break;
-				case 'processing':
-					break;
-				case 'declined':
-					$order->setStatusId( 'canceled' )->save();
-					uc_order_comment_save( $orderId, 0, $this->t( 'Order have not passed Paysto declined.' ) );
-					die( 'canceled' );
-					break;
+    if (!$order || $order->getStateId() != $this->configuration['order_status_after']) {
+      if ($this->checkInServerList()) {
+        if ($x_response_code == 1 && $calculated_x_MD5_Hash == $x_MD5_Hash) {
+          $comment = $this->t('Paid by Paysto method use payment type "@type", order #@order and transaction number in Paysto system is @transaction. Also look payment callback log: @dump ', [
+            '@type'  => Html::escape($request->request->get('x_method')),
+            '@order' => Html::escape($request->request->get('x_invoice_num')),
+            '@transaction' => Html::escape($request->request->get('x_trans_id')),
+            '@dump' => Html::escape(print_r($request->request->all(),TRUE)),
+          ]);
+          uc_payment_enter($order->id(), 'paysto', $request->request->get('x_amount'), $order->getOwnerId(), NULL, $comment);
+          $order->setStatusId($this->configuration['order_status_after'])->save();
+          die('success');
+        } else {
+          $this->onCancel($order, $request);
+          return;
+        }
+      } else {
+        $this->onCancel($order, $request);
+        return;
+      }
+    } else {
+      \Drupal::messenger()->addMessage($this->t('Order complete! Thank you for payment'), 'success');
+      return $this->cartManager->completeSale($order);
+    }
+  }
 
-				case 'expired':
-					$order->setStatusId( 'canceled' )->save();
-					uc_order_comment_save( $orderId, 0, $this->t( 'Order have not passed Paysto expired.' ) );
-					die( 'canceled' );
-					break;
-			}
-		}
-		die( 'ok' );
-	}
+  /**
+   * Callback order fail proceed
+   * @param OrderInterface $order
+   * @param Request $request
+   */
+  public function onCancel(Order $order, Request $request)
+  {
+    \Drupal::messenger()->addMessage($this->t('You have canceled checkout at Paysto but may resume the checkout process here when you are ready.'), 'error');
+    uc_order_comment_save($order->id(), 0, $this->t('Order have not passed Paysto declined. Paysto make call back with data: @dump',[
+      '@dump' => Html::escape(print_r($request->request->all(),TRUE))
+    ]));
 
-	private function isPaymentValid( $settings, $response ) {
+    $url = '/cart/checkout/';
+    $response = new RedirectResponse($url, 302);
+    $response->send();
+  }
 
-		if ( $settings['x_login'] != $response['x_login'] ) {
-			return false;
-		}
+  /**
+   * Return sign with MD5 algoritm
+   *
+   * @param $x_login
+   * @param $x_trans_id
+   * @param $x_amount
+   * @param $secret
+   * @return string
+   */
+  public static function get_x_MD5_Hash($x_login, $x_trans_id, $x_amount, $secret)
+  {
+    return md5($secret . $x_login . $x_trans_id . $x_amount);
+  }
 
-		$responseSignature = $response['signature'];
-		if ( isset( $response['response_signature_string'] ) ) {
-			unset( $response['response_signature_string'] );
-		}
-		if ( isset( $response['signature'] ) ) {
-			unset( $response['signature'] );
-		}
-		if ( Paysto::getSignature( $response, $settings['secret'] ) != $responseSignature ) {
-			return false;
-		}
-
-		return true;
-	}
+  /**
+   * Check if IP adress in server lists
+   *
+   * @return bool
+   */
+  public function checkInServerList()
+  {
+    if ($this->configuration['use_ip_only_from_server_list']) {
+      $clientIp = \Drupal::request()->getClientIp();
+      $serverIpList = preg_split('/\r\n|[\r\n]/', $this->configuration['server_list']);
+      if (in_array($clientIp, $serverIpList)) {
+        return true;
+      } else {
+        return false;
+      }
+    } else {
+      return true;
+    }
+  }
 
 }
