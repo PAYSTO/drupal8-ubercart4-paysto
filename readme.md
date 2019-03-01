@@ -1,6 +1,6 @@
-UC Paysto и Drupal 8 Ubercart 4
+# UC Paysto и Drupal 8 Ubercart 4
 
-Модуль предназначен для интеграции магазина на Drupal 8 и Ubercart 4 с системой оплаты Paysto (сайты www.paysto.ru и www.paysto.com)
+## Модуль предназначен для интеграции магазина на Drupal 8 и Ubercart 4 с системой оплаты Paysto (сайты www.paysto.ru и www.paysto.com)
 
 1. Для использования модуля на вашем сайте его необходимо вам установить. Можно установить через меню установки модулей Drupal, а можно путем записи каталога uc_paysto в директорию предназначенную для ваших сайтов "sites/all/modules" или "sites/default/modules"
 
@@ -21,13 +21,13 @@ UC Paysto и Drupal 8 Ubercart 4
 
 
 
-UC Paysto and Drupal 8 Ubercart 4
+# UC Paysto and Drupal 8 Ubercart 4
 
-The module is designed to integrate a store on Drupal 8 and Ubercart 4 with the Paysto payment system (www.paysto.ru and www.paysto.com)
+## The module is designed to integrate a store on Drupal 8 and Ubercart 4 with the Paysto payment system (www.paysto.ru and www.paysto.com)
 
 1. To use the module on your site you need to install it. You can install it through the installation menu of Drupal modules, or you can by writing the uc_paysto directory to a directory intended for your sites: "sites/all/modules" or "sites/default/modules"
 
-2. After that, you can go to the configuration menu of payment methods "/admin/ store/config/payment".
+2. After that, you can go to the configuration menu of payment methods "/admin/store/config/payment".
 
 3. Create a new payment method as the type choose "paysto".
 
